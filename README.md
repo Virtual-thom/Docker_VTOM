@@ -16,27 +16,28 @@ Plusieurs solutions si on veut garder les modifications :
  
 ## Mode opératoire
 
-1. First things firt - Installation de Docker
+### First things firt - Installation de Docker
 [Installation Docker](https://docs.docker.com/installation)
 
 En gros, soit on installe Docker engine sur un linux, soit on installe [Docker ToolBox](https://www.docker.com/toolbox) sur Windows. Cela dit, il ne fait qu'installer Virtualbox avec une mini VM Linux avec Docker installé dessus.
 
-2. Clone de ce repo dans votre répertoire 
+### Clone de ce repo dans votre répertoire 
 `git clone git@github.com:thomas-asnar/Docker_VTOM.git`
 
-3. Ajout de vos sources d'installation SERVEUR + CLIENT VTOM dans le répertoire SES
+### Ajout de vos sources d'installation SERVEUR + CLIENT VTOM dans le répertoire SES
 
 Copier simplement les sources VT-SES-<votre OS, votre version> et VT-CS-<votre OS, votre version> depuis votre CD-ROM VTOM vers le répertoire SES/ clôné.
 Au besoin, modifier le script SES/dockerinit.ksh 
 
-4. Paramétrer le fichier Dockerfile ainsi que le install_vtom.ini comme on le souhaite
+### Paramétrer le fichier Dockerfile ainsi que le install_vtom.ini comme on le souhaite
 
 J'ai mis des options et des paths par défaut d'installation de VTOM. Il suffit d'ouvrir ces deux fichiers Dockerfile et install_vtom.ini pour comprendre.
 
-5. Build de l'image
+### Build de l'image
+
 `docker build /path/du/gitclone`
 
-6. Run de l'image
+### Run de l'image
 
 On récupère l'ID de l'image créée (si on veut conserver l'image, on fera un `docker tag IDimage <nouveau nom d'image>`
 
