@@ -1,0 +1,923 @@
+#!/bin/ksh
+ 
+# INSTALLATION VISUAL TOM AGENT / SERVEUR
+
+gras=`tput bold`
+soul=`tput smul`
+reve=`tput rev`
+annu=`tput sgr0`
+clsc=`tput clear`
+
+[ -a /bin/nawk ] && alias -x awk='/bin/nawk'
+
+istrue()  {
+	case "$1" in
+	"y"|"Y"|"yes"|"YES") return 0;;
+	"o"|"O"|"oui"|"OUI") return 0;;
+	*) return 1;;
+	esac
+}
+
+isfalse() {
+	if istrue $1 ; then
+		return 1;
+	fi
+	return 0;
+}
+
+
+# -----------------------------------
+# Lecture du fichier install_vtom.ini
+# -----------------------------------
+if [ -r install_vtom.ini ] ; then
+	. ./install_vtom.ini
+else
+	print - "${gras}ATTENTION - Impossible de lire le fichier de configuration install_vtom.ini${annu}"
+	exit 1
+fi
+
+# -----------------------------------------------
+#       Ce script doit etre execute par root
+# -----------------------------------------------
+repinstall=`pwd`
+PATH=${repinstall}:${PATH}:/bin:/usr/bin:/usr/ucb
+if [ `id | cut -f2 -d"(" | cut -f1 -d")" ` != root ] ; then
+        print - "\n${gras}Vous devez etre root pour installer Visual TOM${annu}"
+#        istrue "${batch}" && su root -c '${0} ${*}'
+        exit 1
+fi
+
+print - "\nInitialisation de l'installation de Visual TOM ..."
+
+# -------------------------
+# Fichiers log et uninstall
+# -------------------------
+baselog=`basename ${0}`
+log=${repinstall}/${baselog}.log
+uns=${repinstall}/un${baselog}
+unstmp=${repinstall}/un${baselog}.tmp
+tmp=${repinstall}/install_vtom.tmp/
+
+if [ -r ${tmp} ] ; then
+	print - "${gras}WARNING - Une precedente installation a ete interrompue. Annulez cette"
+	print - "          installation en lancant uninstall_vtom ou effacez le repertoire "
+	print - "          install_vtom.tmp et le script uninstall_vtom, puis relancez "
+	print - "          l'installation${annu}"
+	exit 1
+fi
+
+# ---------------------------------------------------------------------
+# Verification de la présence et de la validite des modules a installer
+# ---------------------------------------------------------------------
+ls_modules=`ls VT*` 2> /dev/null
+if [ $# = 0 ] ; then
+	print - "${gras}Vous devez indiquer en parametre au script d'installation les modules"
+	print - "a installer.${annu} Vous disposez des modules suivants : "
+	if [ "${ls_modules}" = "" ] ; then
+		print - "${gras}ATTENTION : vous ne disposez d'aucun module Visual TOM dans ce repertoire${annu}"
+	else
+		for module in $ls_modules
+		do
+			print - "  - $module"
+		done
+	fi
+	print - "${gras}Installation annulee.${annu}"
+	exit 1
+else
+	if [ $# -gt 2 ] ; then
+		print - "${gras}ATTENTION : impossible d'installer tous ces modules simultanement${annu}"
+		print - "$*"
+		print - "Reportez vous au guide d'installation de Visual TOM"
+		exit 1
+	fi
+	for param in $* 
+	do
+		check=0
+		for module in $ls_modules
+		do
+			[ $param = $module ] && check=1
+		done
+		if [ $check = 0 ] ; then
+			print - "${gras}ATTENTION : le module $param n'est pas present dans le repertoire courant"
+			print - "${gras}Installation annulee.${annu}"
+			exit 1
+		fi
+	done
+fi
+			
+
+#########################################
+#					#
+# 0)	definition des fonctions	#
+#					#
+#########################################
+
+# --------------------------------------
+# defport ( port , defaut )
+# 	si le port n'est pas defini dans /etc/services
+#	- si la valeur par defaut n'est pas prise l'affecte au port
+#	- sinon demande une autre valeur (si on est pas en mode batch)
+#	- ajoute cette definition dans ${tom_admin}/services.new
+# --------------------------------------
+defport() {
+	grep "[^A-Za-z0-9_\-]"$1"[^A-Za-z0-9_\-]" /etc/services 
+	if [ $? != 0 ] ; then
+		# Le port n'existe pas
+		grep "[^A-Za-z0-9_\-]"$2"[^A-Za-z0-9_\-]" /etc/services
+		if [ $? = 0 ] ; then
+			if istrue "${batch}" ; then
+				print -  "${gras}Le port ${2} existe deja dans /etc/services pour ${1}!${annu}\n"
+				exit 1
+			else
+				ques "Numero de port tcp pour ${1}" "aucun"
+				port=`rep1 "aucun"`
+				print - "${1}	${port}/tcp" >> ${tom_admin}/services.new
+			fi
+		else
+			print - "${1}	${2}/tcp" >> ${tom_admin}/services.new
+		fi
+	fi
+	}
+
+# --------------------------------------
+# chdroits ( repertoire , droits )
+# 	change le les droits d'un repertoire
+# --------------------------------------
+chdroits() {
+	if [ -d $2 ]; then		
+		chmod $1 $2
+		for entry in $2/* $2/.??*
+		do
+			chdroits $1 $entry
+		done
+	elif [ -f $2 ] && [ ! -h $2 ] ; then
+		chmod $1 $2
+	fi	
+	}
+
+# --------------------------------------
+# chprop ( repertoire , proprietaire , groupe )
+# 	change le propritaire et le groupe d'un repertoire
+# --------------------------------------
+chprop() {
+	if [ -d $1 ]; then		
+		chown $2 $1
+		chgrp $3 $1
+		for entry in $1/* $1/.??*
+		do
+			chprop $entry $2 $3
+		done
+	elif [ -f $1 ] && [ ! -h $1 ] ; then
+		chown $2 $1
+		chgrp $3 $1
+	fi
+	}
+
+# --------------------------------------
+# old ( file )
+# 	renomme file en file.old
+#	journalise dans install_vtom.log
+#	construit le fichier d'annulation uninstall_vtom
+# --------------------------------------
+old() 	{
+	print - "   - Copie de $1 en ${1}.old"	>> $log
+	mv $1 ${1}.old 				2>> $log
+	print - "mv ${1}.old $1"			>> $uns
+	}
+	
+# --------------------------------------
+# efface ( rep )
+# 	transfere le repertoire dans $tmp
+#	journalise et construit le fichier d'annulation
+# 	a la fin de l'install, $tmp sera detruit
+# --------------------------------------
+efface() {
+	print - "   - Supression du repertoire $1"	>> $log
+	nomrep=`basename $1`
+	mv $1 ${tmp}/${nomrep}			2>> $log
+	print - "mv ${tmp}/${nomrep} $1"		>> $uns
+	}
+
+# --------------------------------------
+# mkrep ( rep , bck )
+# 	cree le repertoire rep
+#	journalise et construit le fichier d'annulation
+# --------------------------------------
+mkrep() {
+	print - "   - Creation du repertoire $1"	>> $log
+	mkdir -p ${1} 				2>> $log
+	print - "rm -r $1"				>> $uns
+	}
+
+# --------------------------------------
+# ques ( question , defaut )
+# 	affiche une question et sa reponse par defaut
+# --------------------------------------
+ques()  {
+	print -  "\n ${1} ? " 
+	print -  " [${gras}${2}${annu}] : \c"
+	}
+
+# --------------------------------------
+# rep2 ( defaut )
+# 	reponse a question Oui/Non
+# --------------------------------------
+rep2()	{
+	read answer
+	if [ -n "${answer}" ] ; then
+		case "${answer}" in
+		"o") print - "o" ;;
+		"O") print - "o" ;;
+		"oui") print - "o" ;;
+		"OUI") print - "o" ;;
+		*) print - "n" ;;
+		esac
+	else
+		print - $1
+	fi
+	}
+answer=""
+
+# --------------------------------------
+# rep1 ( defaut )
+# 	reponse a question 
+#	- si reponse, alors renvoie reponse
+#	- sinon renvoie valeur par defaut
+# --------------------------------------
+rep1()	{
+	read answer
+	if [ -z "${answer}" ] ; then
+		print - ${1}
+	else
+		print - ${answer}
+	fi
+	}
+
+# --------------------------------------
+# extract ( rep , archive )
+# 	extrait le repertoire de l'archive 
+# --------------------------------------
+extract() {
+	zcat ${repinstall}/${2} | tar xf - ${1} 1>> ${log} 2>&1
+	if [ $? != 0 ] ; then
+		print - "\n ${gras}Erreur lors de l'extraction de ${2} : ${1} ${annu} "
+		print - " -> \c"
+		tail -1 ${log}
+		print - " Installation annulee"
+		exit 50
+	fi
+	packsz=`du -sk ${1} | cut -f1` 
+	print - "   - Repertoire $1 (${packsz}Kb)"
+	print - "   - Repertoire $1 (${packsz}Kb)" >> $log
+	}
+# --------------------------------------
+# defpack 
+# 	definit les pack a installer selon la variable $pack
+# --------------------------------------
+defpack() {
+	case `print - ${1} | cut -f2 -d-` in
+	SES) # Enterprise Server
+		pack="${pack} Enterprise Server"
+		pack_SER=3
+		pack_IHM=1
+		pack_BCK=1 
+		mod_SER=${1} 
+		mod_IHM=${1} ;;
+	SDS) # Departemental Server
+		pack="${pack} Departemental Server"
+		pack_SER=1
+		pack_IHM=1
+		pack_BCK=1 
+		mod_SER=${1} 
+		mod_IHM=${1} ;;
+	SBU) # Backup Server
+		pack="${pack} Backup Server"
+		pack_SER=1
+		pack_IHM=1
+		pack_BCK=2 
+		mod_SER=${1} 
+		mod_IHM=${1} ;;
+	CS|CSM) # Agent
+		pack="${pack} Agent"
+		pack_CLI=1 
+		mod_CLI=${1} ;;
+	CSL) # Agent Light
+		pack="${pack} Agent Light"
+		pack_CLI=2 
+		mod_CLI=${1} ;;
+	CN) # Net Agent
+		pack="${pack} Net Agent"
+		pack_SER=2 
+		pack_CLI=1
+		pack_IHM=1
+		mod_SER=${1} 
+		mod_IHM=${1} 
+		mod_CLI=${1} ;;
+	CNL) # Net Agent Light
+		pack="${pack} Net Agent Light"
+		pack_SER=2 
+		pack_CLI=2
+		pack_IHM=1 
+		mod_SER=${1} 
+		mod_IHM=${1} 
+		mod_CLI=${1} ;;
+	XVI) # X Vision
+		pack="${pack} X Vision"
+		pack_IHM=1 
+		mod_IHM=${1} ;;
+	STA) # Stand Alone
+		pack="${pack} Stand Alone"
+		pack_SER=2
+		pack_CLI=1
+		pack_IHM=1 
+		mod_SER=${1} 
+		mod_IHM=${1} 
+		mod_CLI=${1} ;;
+	esac
+	}
+
+# --------------------------------------
+# affparam
+# 	affiche les parametres de l'installation
+# --------------------------------------
+affparam() {
+	print - " Installation des modules Visual TOM :${pack}\n"
+	if [ $pack_SER -gt 0 ] ; then
+		case $pack_BCK in
+		0) print - " Pas de serveur de backup installe" ;;
+		1) 	print - " Solution serveur de backup :"
+			if [ "${backup_server}" = "aucun" ] ; then
+				print - "    - Aucun serveur de backup configure"
+			else
+				print - "    - installation du serveur primaire"
+				print - "    - serveur de backup : ${gras}${backup_server}${annu}" 
+			fi ;;	
+		2) 	print - " Solution Serveur de backup :"
+			if [ "${primary_server}" = "aucun" ] ; then
+				print - "   - ${gras}ATTENTION${annu} - aucun serveur primaire configure"
+			else
+				print - "    - installation du serveur de backup"
+				print - "    - serveur primaire ${gras}${primary_server}${annu}" 
+			fi ;;
+		esac
+	fi
+	tom_usad_home=`/bin/ksh -c "print - ~${tom_user_admin}"`
+	print - "\n Administrateur Visual TOM       [${gras}${tom_user_admin}${annu}]"
+	print - "\n Home Administrateur Visual TOM  [${gras}${tom_usad_home}${annu}]" 
+	print - "\n Repertoire d'installation       [${gras}${tom_home}${annu}]\n"
+	if [ $pack_SER -gt 0 ] ; then
+		print - " Repertoire TOM_BASES            [${gras}${tom_bases}${annu}]"
+		print - " Repertoire TOM_BACKUP           [${gras}${tom_backup}${annu}]"
+		print - " Repertoire TOM_STATS            [${gras}${tom_stats}${annu}]"
+		print - " Repertoire TOM_TRACES           [${gras}${tom_traces}${annu}]"
+	fi
+	if [ $pack_CLI -gt 0 ] ; then
+                print - " Repertoire ABM_LOGS             [${gras}${abm_logs}${annu}]"
+        fi
+	}
+
+rm $log 2> /dev/null
+
+#########################################
+#					#
+# 1)	Initialisation des parametres	#
+#					#
+#########################################
+
+# --------------------------------------------
+# Definition du pack selon le nom de l'archive
+# --------------------------------------------
+pack=""
+pack_SER=0
+pack_CLI=0
+pack_IHM=0
+pack_BCK=0
+j=0
+for i in $*
+do
+	j=$(( $j + 1 ))
+	defpack `print - $i`
+	[ $j -lt $# ] && pack="${pack} /"
+done
+if [ $pack_SER -gt 0 ] ; then
+	mod_GEN=$mod_SER
+else
+	[ $pack_CLI -gt 0 ] && mod_GEN=$mod_CLI || mod_GEN=$mod_IHM
+fi
+
+[ -d /usr/openwin/lib ] && ld_library_path="/usr/lib/:/usr/openwin/lib:" || ld_library_path="/usr/lib/:"
+
+# -------------------------
+# Validation des parametres
+# -------------------------
+
+istrue "${batch}" && loop="o" || loop="n"
+
+while [ "${loop}" = "n" ] 
+do
+	print - "${clsc}\n ${soul}${gras}Parametres de l'installation${annu} \n"
+	affparam
+	ques "Confirmez-vous ces parametres pour proceder a l'installation" "o"
+	loop=`rep2 "o"`
+	if [ "${loop}" = "n" ] ; then
+		print - ${clsc}
+		if [ $pack_BCK = 1 ] ; then
+			ques "Nom du serveur de backup ('aucun' pour annuler cette option)" "${backup_server}"
+			backup_server=`rep1 ${backup_server}`
+		fi
+		if [ $pack_BCK = 2 ] ; then
+			ques "Nom du serveur primaire ('aucun' pour annuler cette option)" "${primary_server}"
+			primary_server=`rep1 ${primary_server}`
+		fi
+		ques "Repertoire de base d'installation" "$tom_home"
+		tom_home=`rep1 "$tom_home"`
+	        if [ $pack_SER -gt 0 ] ; then
+	        	tom_bases="${tom_home}/bases"
+		        tom_backup="${tom_home}/backup"
+		        tom_stats="${tom_home}/stats"
+		fi
+	        if [ $pack_SER -gt 0 ] || [ $pack_CLI -gt 0 ] ; then
+	        	tom_traces="${tom_home}/traces"
+		fi
+		[ $pack_CLI -gt 0 ] && abm_logs="${tom_home}/logs"
+
+		ques "Definissez l'administrateur UNIX de Visual TOM" "$tom_user_admin"
+		tom_user_admin=`rep1 "$tom_user_admin"`
+
+		if [ $pack_SER -gt 0 ] ; then
+			ques "Repertoire de la base de donnees Visual TOM" ${tom_bases}
+			tom_bases=`rep1 ${tom_bases}`
+
+			ques "Repertoire de backup de la base de donnees" ${tom_backup}
+			tom_backup=`rep1 ${tom_backup}`
+	
+			ques "Repertoire de generation des fichiers statistiques" ${tom_stats}
+			tom_stats=`rep1 ${tom_stats}`
+
+			ques "Repertoire des traces du moteur de Visual TOM" ${tom_traces}
+			tom_traces=`rep1 ${tom_traces}`
+		fi
+
+		if [ $pack_CLI -gt 0 ] ; then
+			ques "Repertoire des fichiers logs" ${abm_logs}
+			abm_logs=`rep1 ${abm_logs}`
+		fi
+
+		print - "\n En cas de mise a jour voulez vous conserver les anciennes donnees ?"
+		print - " La base de donnees sera conservee et le repertoire d'administration"
+		print - " sauvegarde dans tous les cas."
+		ques " Sauvegarder l'installation existante" n
+		bck=`rep2 "n"`
+	fi
+done
+
+# --------------------------------
+# Definition des repertoires fixes
+# --------------------------------
+tom_admin=${tom_home}/admin
+tom_submitter=${tom_home}/admin/tom_submit
+
+vtom=${tom_home}/vtom
+tom_bin=${vtom}/bin
+
+tom_visual=${tom_home}/visual
+
+abm=${tom_home}/abm
+abm_bin=${abm}/bin
+abm_spool=${abm}/spool
+abm_config=${abm}/config
+abm_queues=${abm_config}/queues
+abm_scripts=${tom_home}/scripts
+
+manager=${tom_home}/manager
+manager_bin=${manager}/bin
+
+mkdir $tmp 2>> /dev/null
+touch $uns
+chmod 0700 $uns
+
+print - "----------------------------------------" > $log
+print - "  Journal d'installation de Visual TOM  " >> $log
+print - "----------------------------------------" >> $log
+print - "Machine: $HOST le \c" 			>> $log
+date +"%d/%m/%Y" 				>> $log
+print - "\n1) Parametres de l'installation : \n" 	>> $log
+affparam 					>> $log
+checkpoint=1
+
+if [ $pack_BCK = 1 ] && [ "${backup_server}" = "aucun" ] ; then
+	pack_BCK=0
+fi
+if [ $pack_BCK = 2 ] && [ "${primary_server}" = "aucun" ] ; then
+	pack_BCK=0
+fi
+
+#################################################
+#						#
+# 2) Controle d'une installation precedente	#
+#						#
+#################################################
+
+# -----------------------------------
+# Check d'une precedente installation
+# -----------------------------------
+print - "#!/bin/ksh" > $uns
+print - "\n2) Controle d'une precedente installation :"	>> $log
+print - "\n${gras} Controle d'une precedente installation ${annu}"
+
+[ ! -d ${tom_home} ] &&	mkrep $tom_home
+[ -d $tom_admin ] && old ${tom_admin} 
+
+if [ "${bck}" = "o" ] ; then
+	[ -d $tom_bin ] && 	old ${tom_bin} 
+	[ -d $tom_visual ] &&	old ${tom_visual}
+	[ -d $abm ] && 		old ${abm}
+	[ -d $manager ] && 	old ${manager}
+else
+	[ -d $tom_bin ] && 	efface $tom_bin 
+	[ -d $tom_visual ] && 	efface $tom_visual
+	[ -d $abm_config ] && 	old ${abm_config}
+	[ -d $abm_bin ] && 	efface $abm_bin
+	[ -d $manager_bin ] && 	efface $manager_bin
+fi
+checkpoint=2
+
+#################################################
+#						#
+# 3) Installation des fichiers et repertoires	#
+#						#
+#################################################
+
+# -----------------------
+# Extraction de l'archive
+# -----------------------
+
+print - "\n\n ${gras}Installation en cours sous ${tom_home} : ${annu}"
+print - "\n3) Transfert des repertoires et des fichiers" >> $log
+cd ${tom_home}
+print - "cd $tom_home"	>> $uns
+print - "rm -rf ${files}" 	>> $uns
+extract admin $mod_GEN
+[ $pack_CLI = 0 ] && rm admin/admin_client || ln -s admin_client admin/adminc
+[ $pack_SER = 0 ] && rm admin/admin_serveur || ln -s admin_serveur admin/admins
+
+if [ $pack_SER -gt 0 ] ; then
+	if [ $pack_IHM = 1 ] ; then
+		extract visual $mod_IHM
+	fi
+	extract vtom $mod_SER
+else
+	if [ $pack_IHM = 1 ] ; then
+		extract visual $mod_IHM
+		extract vtom $mod_IHM
+	fi
+fi
+
+if [ $pack_CLI -gt 0 ] ; then
+	extract abm $mod_CLI
+	extract manager $mod_CLI
+fi
+
+cd $repinstall 	
+
+if [ $pack_SER -gt 0 ] ; then
+        if [ ! -d $tom_bases ] ; then
+                mkrep $tom_bases
+                cd ${tom_bases}                                                 2>> $log
+                extract bases $mod_SER
+                mv ./bases/* .
+                rmdir bases
+                cd $repinstall
+        else
+                print - "   - Une base de donnee Visual TOM a ete detectee" 
+                print - "   - Une base de donnee Visual TOM a ete detectee"        >> $log
+        fi
+fi
+
+if [ $pack_CLI -gt 0 ] && [ ! -d $abm_scripts ] ; then
+	mkrep $abm_scripts	
+	cd ${abm_scripts}/..  						2>> $log
+	extract scripts $mod_CLI 
+	cd $repinstall 	
+fi
+
+if [ $pack_SER -gt 0 ] ; then
+	cd ${tom_home}
+	# WEBDOC
+	extract www $mod_SER
+	# SGBD
+	extract sgbd $mod_SER
+	# Changement de proprietaire pour le lien symbolique
+        tom_group_admin=`id $tom_user_admin | cut -f 3 -d"(" | cut -f 1 -d")"`
+        chown -h ${tom_user_admin}:${tom_group_admin} ${tom_home}/sgbd/bin/postmaster 2>> $log
+	# DOC
+	extract doc $mod_SER
+	cd $repinstall
+fi
+
+# ------------------------
+# creation des repertoires
+# ------------------------
+
+if [ $pack_SER -gt 0 ] ; then 
+	[ ! -d $tom_stats ] &&  mkrep $tom_stats 		
+	[ ! -d $tom_traces ] && mkrep $tom_traces	
+	[ ! -d $tom_backup ] && mkrep $tom_backup 
+fi
+
+if [ $pack_CLI -gt 0 ] ; then 
+	[ ! -d $abm_logs ] && mkrep $abm_logs	
+	print - $tom_user_admin >> ${abm_config}/managers
+	
+	# creation de la queue_sap
+		touch ${abm_config}/queues/queue_sap/queue.conf 				2>> $log
+		if [ $? != 0 ] ; then
+			print - "Echec lors de la creation de la queue sap"
+			print - "Pour plus d'informations, consultez le fichier install_vtom.log"
+		else
+			print - "queue_sap" > ${abm_config}/queues/queue_sap/queue.conf 		2>> $log
+			print - "10" >> ${abm_config}/queues/queue_sap/queue.conf 			2>> $log
+			print - "-1" >> ${abm_config}/queues/queue_sap/queue.conf 			2>> $log
+			print - "${abm_bin}/sap" >> ${abm_config}/queues/queue_sap/queue.conf 	2>> $log
+			print - "20" >> ${abm_config}/queues/queue_sap/queue.conf 			2>> $log
+ 		fi
+
+	# creation des queues
+	# les variables $ABM et $TOM_ADMIN sont requises pour les scripts de creation de queue
+	export ABM=${abm}
+	export TOM_ADMIN=${tom_admin}
+	create_queue_scripts=`ls ${abm}/create_queue_*.ksh`
+	for f in ${create_queue_scripts}; do
+		chmod u+x $f
+		$f		
+		rm -f $f
+	done
+
+fi
+checkpoint=3
+
+
+#########################################
+#					#
+# 4) Ports tcp				#
+#					#
+#########################################
+
+print - "\n4) Controles des ports tcp :" >> $log
+print - "\n ${gras}Controles des ports tcp Visual TOM dans /etc/services ${annu}\n"
+print - "\n# ---------------------"	> ${tom_admin}/services.new 	2>> $log
+print - "# Demons tcp Visual TOM" 		>> ${tom_admin}/services.new
+print - "# ---------------------" 		>> ${tom_admin}/services.new
+if [ $pack_SER -gt 0 ] ; then
+        defport "tomDBd"                ${port_tomDBd}
+        defport "bdaemon"               ${port_bdaemon}
+        defport "vtserver"              ${port_vtserver}
+        defport "vtnotifier"            ${port_vtnotifier}
+        defport "vtsgbd"                ${port_vtsgbd}
+        defport "vthttpd"               ${port_vthttpd}
+	defport "vtmanager"             ${port_vtmanager}
+elif [ $pack_IHM -gt 0 ] ; then
+        defport "vtserver"              ${port_vtserver}
+else
+        defport "tomDBd"                ${port_tomDBd}
+        defport "bdaemon"               ${port_bdaemon}
+        defport "vtserver"              ${port_vtserver}
+	defport "vtmanager"             ${port_vtmanager}
+fi
+
+port=`wc -l ${tom_admin}/services.new `
+port=`print - $port | cut -f 1 -d " "`
+if [ ${port} -gt 4 ] ; then
+	print - "   - Les ports de Visual TOM ont ete definis dans ${tom_admin}/services.new" >> $log
+	print - "     Vous devez les ajouter dans /etc/services" >> $log
+	print - "Les ports suivants sont a ajouter dans /etc/services"
+	print - "Ils sont definis dans le fichier ${tom_admin}/services.new \n"
+	cat ${tom_admin}/services.new
+else
+	print - "   - Les ports de Visual TOM sont presents dans le fichier /etc/services" >> $log
+	rm ${tom_admin}/services.new
+fi
+checkpoint=4
+
+#################################################
+#						#
+# 5) Fichiers de Configuration Visual TOM	#
+#						#
+#################################################
+
+print - "\n5) Generation des fichiers de configuration :" >> $log
+print - "\n${gras} Generation des fichiers de configuration ${annu}" 
+
+gid_root=`id root | cut -f 3 -d"(" | cut -f 1 -d")"`
+tom_group_admin=`id $tom_user_admin | cut -f 3 -d"(" | cut -f 1 -d")"`
+tom_usad_home=`/bin/ksh -c "print - ~${tom_user_admin}"`
+if [ ! -d $tom_usad_home ] ; then
+	print - "${gras} Le repertoire ${tom_usad_home} n'existe pas"
+	print - " Mise a jour des fichiers d'initialisation de ${tom_user_admin} impossible ${annu}"
+	print - "\n WARNING - ${tom_usad_home} n'existe pas" >> $log
+fi
+extract install $mod_GEN
+
+#----------------------------------------
+#      fichier vtom_init.csh / ksh
+#----------------------------------------
+print - "   - Creation des fichiers vtom_init.csh et ksh dans admin" >> $log
+. install/cree_vtom_init.csh > ${tom_admin}/vtom_init.csh 		2>> $log
+ln -sf ${tom_admin}/vtom_init.csh ${tom_admin}/vtom_init.tcsh		2>> $log
+. install/cree_vtom_init.ksh > ${tom_admin}/vtom_init.ksh 		2>> $log
+ln -sf ${tom_admin}/vtom_init.ksh ${tom_admin}/vtom_init.sh		2>> $log
+
+#----------------------------------------
+#      connexion tom_user_admin
+#----------------------------------------
+print - "   - Mise a jour du login ${tom_user_admin} : ${tom_usad_home}/.login et .profile" >> $log
+
+cp ${tom_usad_home}/.cshrc $tmp
+grep "^source ${tom_admin}/vtom_init.csh$" ${tom_usad_home}/.cshrc > /dev/null
+if [ $? != 0 ] ; then
+	print - "source ${tom_admin}/vtom_init.csh" >> ${tom_usad_home}/.cshrc		2>> $log
+	if [ $? != 0 ] ; then
+		print - "\n Echec lors de la mise a jour de ${tom_usad_home}/.cshrc "
+		print - " Pour plus d'informations, consultez le fichier install_vtom.log"
+	else
+		print - "mv $tmp/.cshrc $tom_usad_home" >> $uns
+	fi
+else
+	print - "\n vtom_init.csh deja present dans ${tom_usad_home}/.cshrc  "
+fi
+	
+cp ${tom_usad_home}/.profile $tmp
+grep "^. ${tom_admin}/vtom_init.ksh$" ${tom_usad_home}/.profile > /dev/null
+if [ $? != 0 ] ; then
+	print - ". ${tom_admin}/vtom_init.ksh" >> ${tom_usad_home}/.profile 		2>> $log
+	if [ $? != 0 ] ; then
+		print - "\n Echec lors de la mise a jour de ${tom_usad_home}/.profile "
+		print - " Pour plus d'informations, consultez le fichier install_vtom.log"
+	else
+		print - "mv $tmp/.profile $tom_usad_home" >> $uns
+	fi
+else
+	print - "\n vtom_init.ksh deja present dans le ${tom_usad_home}/.profile  "
+fi
+
+#----------------------------------------
+#       generation du .vtom.ini
+#----------------------------------------
+print - "   - Creation du fichier .vtom.ini dans admin" >> $log
+if [ $pack_SER -ge 1 ] || [ $pack_CLI -gt 0 ] ; then
+	# Creation de .vtom.ini dans ${tom_admin}
+	# Lien ${tom_admin} " -> " ${vtom_home}
+	if [ -r ${tom_usad_home}/.vtom.ini ] || [ -L ${tom_usad_home}/.vtom.ini ] ; then
+		mv -f ${tom_usad_home}/.vtom.ini ${tom_usad_home}/.vtom.old 2>> $log
+		print - "   - Copie de l'ancien .vtom.ini en .vtom.old dans $tom_usad_home" >> $log
+		print - "mv ${tom_usad_home}/.vtom.old ${tom_usad_home}/.vtom.ini" >> $uns
+	else
+		print - "rm ${tom_usad_home}/.vtom.ini" >> $uns
+	fi
+	print - "   - Creation d'un lien de admin/.vtom.ini dans $tom_usad_home" >> $log
+	ln -sf ${tom_admin}/.vtom.ini ${tom_usad_home}/.vtom.ini 	2>> $log
+	if [ $? != 0 ] ; then
+		print - "Echec lors de la creation de lien pour .vtom.ini"
+		print - "Pour plus d'informations, consultez le fichier install_vtom.log"
+	fi
+fi
+
+#----------------------------------------
+# 	lien vthttpd.ini
+#----------------------------------------
+if [ $pack_SER -ge 1 ] ; then
+	# Lien ${tom_admin} " -> " ${vtom_home}
+	if [ -r ${tom_usad_home}/vthttpd.ini ] || [ -L ${tom_usad_home}/vthttpd.ini ] ; then
+		mv -f ${tom_usad_home}/vthttpd.ini ${tom_usad_home}/vthttpd.ini.old 2>> $log
+		print - "   - Copie de l'ancien vthttpd.ini en vthttpd.ini.old dans $tom_usad_home" >> $log
+		print - "mv ${tom_usad_home}/vthttpd.ini.old ${tom_usad_home}/vthttpd.ini" >> $uns
+	else
+		print - "rm ${tom_usad_home}/vthttpd.ini" >> $uns
+	fi
+	print - "   - Creation d'un lien de admin/vthttpd.ini dans $tom_usad_home" >> $log
+	ln -sf ${tom_admin}/vthttpd.ini ${tom_usad_home}/vthttpd.ini 	2>> $log
+	if [ $? != 0 ] ; then
+		print - "Echec lors de la creation de lien pour vthttpd.ini"
+		print - "Pour plus d'informations, consultez le fichier install_vtom.log"
+	fi
+fi
+
+#----------------------------------------------------
+#    generation des start_servers / stop_servers
+#----------------------------------------------------
+if [ $pack_SER -ge 1 ] ; then
+	if istrue "${autostart_vthttpd}" ; then
+		awk '{ if ($0 == "#BEGIN_VTHTTPD") { getline;while($0 != "#END_VTHTTPD") { $0 = substr($0,2); print ;getline }   } else print }' ${tom_admin}/start_servers > ${tom_admin}/start_servers.new
+		mv ${tom_admin}/start_servers.new  ${tom_admin}/start_servers
+		awk '{ if ($0 == "#BEGIN_VTHTTPD") { getline;while($0 != "#END_VTHTTPD") { $0 = substr($0,2); print ;getline }   } else print }' ${tom_admin}/stop_servers > ${tom_admin}/stop_servers.new
+		mv ${tom_admin}/stop_servers.new  ${tom_admin}/stop_servers
+	fi
+	
+	if istrue "${autostart_tsnmp}" ; then
+		awk '{ if ($0 == "#BEGIN_TSNMP") { getline;while($0 != "#END_TSNMP") { $0 = substr($0,2); print ;getline }   } else print }' ${tom_admin}/start_servers > ${tom_admin}/start_servers.new
+		mv ${tom_admin}/start_servers.new  ${tom_admin}/start_servers
+		awk '{ if ($0 == "#BEGIN_TSNMP") { getline;while($0 != "#END_TSNMP") { $0 = substr($0,2); print ;getline }   } else print }' ${tom_admin}/stop_servers > ${tom_admin}/stop_servers.new
+		mv ${tom_admin}/stop_servers.new  ${tom_admin}/stop_servers
+	fi
+fi
+
+#----------------------------------------
+# 	generation des boot_start
+#----------------------------------------
+print - "   - Creation des fichiers boot_start dans repertoire admin" >> $log
+if [ $pack_SER -ge 1 ] ; then
+	cat install/boot_start_servers.1 > ${tom_admin}/boot_start_servers		2>> $log
+	print - "set VTOM=${tom_user_admin}" >> ${tom_admin}/boot_start_servers
+	print - " " >> ${tom_admin}/boot_start_servers
+	print - "# repertoire d'installation de Visual TOM" >> ${tom_admin}/boot_start_servers
+	print - "set TOM_HOM=${tom_home}" >> ${tom_admin}/boot_start_servers
+	cat install/boot_start_servers.2 >> ${tom_admin}/boot_start_servers
+fi
+if [ $pack_CLI -gt 0 ] ; then
+	cat install/boot_start_client.1 > ${tom_admin}/boot_start_client 		2>> $log
+	print - "set VTOM=${tom_user_admin}" >> ${tom_admin}/boot_start_client
+	print - " " >> ${tom_admin}/boot_start_client
+	print - "# repertoire d'installation de Visual TOM" >> ${tom_admin}/boot_start_client
+	print - "set TOM_HOM=${tom_home}" >> ${tom_admin}/boot_start_client
+	cat install/boot_start_client.2 > ${tom_admin}/boot_start_client
+fi
+
+rm -r install
+checkpoint=5
+
+#########################################
+#					#
+# 6)      mise a niveau des droits	#
+#					#
+#########################################
+
+print - "\n6) Mise a niveau des droits" >> $log
+print - "\n${gras} Mise a niveau des droits ${annu}"
+
+chprop ${tom_home} ${tom_user_admin} ${tom_group_admin} 	2>> $log
+chdroits 0755	${tom_home}					2>> $log
+chmod 	 0755  	${tom_admin} 					2>> $log
+if [ $pack_SER -ge 1 ] ; then
+	rm -rf ${tom_bases}/.cache				2>> $log
+	chprop ${tom_bases} ${tom_user_admin} ${tom_group_admin} 2>> $log
+	chdroits 0750 	${vtom} 				2>> $log
+	chdroits 0750 	${tom_bin} 				2>> $log
+#MDFMB_08042005 : Probleme de droits avec le repertoire .cache : 0640 a 0740
+	chdroits 0740 	${tom_bases} 				2>> $log
+	chmod 	 0750 	${tom_bases} 				2>> $log
+	chmod 	 0750 	${tom_bases}/formules 			2>> $log
+	chmod 	 0750 	${tom_bases}/tokens 			2>> $log
+	chmod 	 0750 	${tom_bases}/piles 			2>> $log
+        chmod 	 0750 	${tom_backup} 				2>> $log
+        chmod 	 0750 	${tom_stats}  				2>> $log
+        chmod 	 0750 	${tom_traces} 				2>> $log
+fi
+if [ $pack_IHM = 1 ] ; then
+	chdroits 0750   ${tom_visual} 				2>> $log
+fi
+if [ $pack_CLI -gt 0 ] ; then
+	chdroits 0755 	${abm} 							2>> $log
+	chmod 	 0777 	${abm_logs}  						2>> $log
+	chdroits 0777 	${abm_scripts} 						2>> $log
+        chdroits 0755 	${abm_config} 						2>> $log
+        chown root 	${abm}/bin/bdaemon 					2>> $log
+	chgrp $gid_root ${abm}/bin/bdaemon 					2>> $log
+	chmod 4755  	${abm}/bin/bdaemon  					2>> $log
+	ln -s /bin/ksh  ${abm_bin}/sap						2>> $log 
+	
+	chdroits 0755 	${manager} 						2>> $log
+	chown root 	${manager}/bin/vtmanager				2>> $log
+	chgrp $gid_root ${manager}/bin/vtmanager				2>> $log
+	chmod 4755  	${manager}/bin/vtmanager				2>> $log
+fi
+checkpoint=6
+
+#########################################
+#					#
+# 7)      That's all folks.		#
+#					#
+#########################################
+
+if isfalse "${batch}" ; then
+	print - "\nInstallation terminee." >> $log
+	print - "\n ${gras}L'installation de Visual TOM est terminee ${annu}"
+	print - " Vous pouvez consulter le rapport de cette installation dans install_vtom.log"
+	print - " Connectez vous sous ${tom_user_admin} pour initialiser l'environnement Visual TOM."
+	print - " Si vous utilisez NIS, pensez a mettre a jour les services de votre serveur NIS."
+	if isfalse "${preserve_tmp_files}" ; then
+		print - "\n Le script d'annulation de cette installation et les repertoires temporaires"
+		print - " vont maintenant etre effaces. Si vous desirez les conserver, vous pouvez"
+		print - " interrompre ce script par CTRL-C, sinon appuyez sur la touche Entree.\n\c"
+		read answer
+	fi
+fi
+
+if istrue "${preserve_tmp_files}" ; then
+	print - "\n Les fichiers temporaires sont conserves\n"
+	exit
+fi
+
+print - "\n Les fichiers temporaires ne sont pas conserves\n"
+rm -rf $tmp
+rm $uns
+exit 0
