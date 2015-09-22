@@ -26,7 +26,7 @@ En gros, soit on installe Docker engine sur un linux, soit on installe [Docker T
 
 ### Ajout de vos sources d'installation SERVEUR + CLIENT VTOM dans le répertoire SES
 
-Copier simplement les sources VT-SES-<votre OS, votre version> et VT-CS-<votre OS, votre version> depuis votre CD-ROM VTOM vers le répertoire SES/ clôné.
+Copier simplement les sources VT-SES-&lt;votre OS, votre version&gt; et VT-CS-&lt;votre OS, votre version&gt; depuis votre CD-ROM VTOM vers le répertoire SES/ clôné.
 Au besoin, modifier le script SES/dockerinit.ksh 
 
 ### Paramétrer le fichier Dockerfile ainsi que le install_vtom.ini comme on le souhaite
@@ -39,11 +39,13 @@ J'ai mis des options et des paths par défaut d'installation de VTOM. Il suffit 
 
 ### Run de l'image
 
-On récupère l'ID de l'image créée (si on veut conserver l'image, on fera un `docker tag IDimage <nouveau nom d'image>`
+* on récupère l'ID de l'image créée 
 
 `docker images`
 
-et on lance l'image (en mode tty)
+(si on veut conserver l'image, on fera un `docker tag IDimage <nouveau nom d'image>`)
+
+* on lance l'image (en mode tty)
 
 `docker run -it IDimage`
 
