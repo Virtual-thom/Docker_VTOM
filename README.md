@@ -22,7 +22,7 @@ Plusieurs solutions si on veut garder les modifications :
 En gros, soit on installe Docker engine sur un linux, soit on installe [Docker ToolBox](https://www.docker.com/toolbox) sur Windows. Cela dit, il ne fait qu'installer Virtualbox avec une mini VM Linux avec Docker installé dessus.
 
 ### Clone de ce repo dans votre répertoire 
-`git clone git@github.com:thomas-asnar/Docker_VTOM.git`
+`git clone https://github.com/thomas-asnar/Docker_VTOM.git`
 
 ### Ajout de vos sources d'installation SERVEUR + CLIENT VTOM dans le répertoire SES
 
