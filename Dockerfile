@@ -30,5 +30,5 @@ EXPOSE 30001 30004 30007 30008 30080
 
 # A chaque lancement d'image, on commence le conteneur avec le script d'installation VTOM
 ENTRYPOINT ["/bin/bash"]
-CMD ["-c","sed -i 's/\r//g' /sources/SES/install_vtom.ini ; sed -i 's/\r//g' /sources/SES/dockerinit.ksh; /sources/SES/dockerinit.ksh ;/bin/bash"]
+CMD ["-c","/sources/SES/dockerinit.ksh ;/bin/bash"]
 
