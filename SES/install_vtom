@@ -18,14 +18,6 @@ istrue()  {
 	esac
 }
 
-isfalse() {
-	if istrue $1 ; then
-		return 1;
-	fi
-	return 0;
-}
-
-
 # -----------------------------------
 # Lecture du fichier install_vtom.ini
 # -----------------------------------
@@ -116,7 +108,7 @@ fi
 # defport ( port , defaut )
 # 	si le port n'est pas defini dans /etc/services
 #	- si la valeur par defaut n'est pas prise l'affecte au port
-#	- sinon demande une autre valeur (si on est pas en mode batch)
+#	- sinon demande une autre valeur
 #	- ajoute cette definition dans ${tom_admin}/services.new
 # --------------------------------------
 defport() {
@@ -124,17 +116,12 @@ defport() {
 	if [ $? != 0 ] ; then
 		# Le port n'existe pas
 		grep "[^A-Za-z0-9_\-]"$2"[^A-Za-z0-9_\-]" /etc/services
-		if [ $? = 0 ] ; then
-			if istrue "${batch}" ; then
-				print -  "${gras}Le port ${2} existe deja dans /etc/services pour ${1}!${annu}\n"
-				exit 1
-			else
-				ques "Numero de port tcp pour ${1}" "aucun"
-				port=`rep1 "aucun"`
-				print - "${1}	${port}/tcp" >> ${tom_admin}/services.new
-			fi
+			if [ $? = 0 ] ; then
+			ques "Numero de port tcp pour ${1}" "aucun"
+			port=`rep1 "aucun"`
+			print - "${1}	${port}/tcp" >> ${tom_admin}/services.new
 		else
-			print - "${1}	${2}/tcp" >> ${tom_admin}/services.new
+			echo "${1}	${2}/tcp" >> ${tom_admin}/services.new
 		fi
 	fi
 	}
@@ -768,7 +755,7 @@ if [ $pack_SER -ge 1 ] || [ $pack_CLI -gt 0 ] ; then
 	# Creation de .vtom.ini dans ${tom_admin}
 	# Lien ${tom_admin} " -> " ${vtom_home}
 	if [ -r ${tom_usad_home}/.vtom.ini ] || [ -L ${tom_usad_home}/.vtom.ini ] ; then
-		mv -f ${tom_usad_home}/.vtom.ini ${tom_usad_home}/.vtom.old 2>> $log
+		mv ${tom_usad_home}/.vtom.ini ${tom_usad_home}/.vtom.old
 		print - "   - Copie de l'ancien .vtom.ini en .vtom.old dans $tom_usad_home" >> $log
 		print - "mv ${tom_usad_home}/.vtom.old ${tom_usad_home}/.vtom.ini" >> $uns
 	else
@@ -788,7 +775,7 @@ fi
 if [ $pack_SER -ge 1 ] ; then
 	# Lien ${tom_admin} " -> " ${vtom_home}
 	if [ -r ${tom_usad_home}/vthttpd.ini ] || [ -L ${tom_usad_home}/vthttpd.ini ] ; then
-		mv -f ${tom_usad_home}/vthttpd.ini ${tom_usad_home}/vthttpd.ini.old 2>> $log
+		mv ${tom_usad_home}/vthttpd.ini ${tom_usad_home}/vthttpd.ini.old
 		print - "   - Copie de l'ancien vthttpd.ini en vthttpd.ini.old dans $tom_usad_home" >> $log
 		print - "mv ${tom_usad_home}/vthttpd.ini.old ${tom_usad_home}/vthttpd.ini" >> $uns
 	else
@@ -898,26 +885,24 @@ checkpoint=6
 #					#
 #########################################
 
-if isfalse "${batch}" ; then
+if ! istrue "${batch}" ; then
 	print - "\nInstallation terminee." >> $log
 	print - "\n ${gras}L'installation de Visual TOM est terminee ${annu}"
 	print - " Vous pouvez consulter le rapport de cette installation dans install_vtom.log"
 	print - " Connectez vous sous ${tom_user_admin} pour initialiser l'environnement Visual TOM."
-	print - " Si vous utilisez NIS, pensez a mettre a jour les services de votre serveur NIS."
-	if isfalse "${preserve_tmp_files}" ; then
-		print - "\n Le script d'annulation de cette installation et les repertoires temporaires"
-		print - " vont maintenant etre effaces. Si vous desirez les conserver, vous pouvez"
-		print - " interrompre ce script par CTRL-C, sinon appuyez sur la touche Entree.\n\c"
-		read answer
-	fi
+	print - " Si vous utilisez NIS, pensez a mettre a jour les services de votre serveur NIS"
+	print - "\n Le script d'annulation de cette installation et les repertoires temporaires"
+	print - " vont maintenant etre effaces. Si vous desirez les conserver, vous pouvez"
+	print - " interrompre ce script par CTRL-C, sinon appuyez sur la touche Entree. \n \c"
+	read answer
 fi
 
 if istrue "${preserve_tmp_files}" ; then
-	print - "\n Les fichiers temporaires sont conserves\n"
+	print - "Les fichiers temporaires sont conserves \n"
 	exit
 fi
 
-print - "\n Les fichiers temporaires ne sont pas conserves\n"
+print - "Les fichiers temporaires ne sont pas conserves \n"
 rm -rf $tmp
 rm $uns
 exit 0
