@@ -47,6 +47,6 @@ J'ai mis des options et des paths par défaut d'installation de VTOM. Il suffit 
 
 * on lance l'image (en mode tty)
 
-`docker run -it IDimage`
+`docker run -it -p 30007-30008:30007-30008 IDimage`
 
 
