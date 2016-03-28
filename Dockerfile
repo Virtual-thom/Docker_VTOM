@@ -25,3 +25,4 @@ COPY SES /sources/SES/
 # A chaque lancement d'image, on commence le conteneur avec le script d'installation VTOM
 ENTRYPOINT ["/bin/ksh"]
 CMD ["-c","/sources/SES/dockerinit.ksh ; /bin/bash"]
+

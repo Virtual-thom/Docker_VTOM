@@ -1,0 +1,18 @@
+docker_vtom:
+    image: docker_vtom 
+    ports:
+    - "30007-30008:30007-30008"
+    volumes:
+    - /mnt/workspace:/mnt/workspace
+    links:
+    - dev_tools 
+    stdin_open: true
+    tty: true
+dev_tools:
+    image: dev_tools 
+    ports:
+     - "6666:22"
+    volumes:
+     - /mnt/workspace:/mnt/workspace
+    stdin_open: true
+    tty: true
