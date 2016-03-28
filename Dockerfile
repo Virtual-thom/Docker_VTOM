@@ -6,6 +6,8 @@ MAINTAINER thomas ASNAR <thomas.asnar@gmail.com>
 # L'installation de VTOM nécessite ksh
 RUN apt-get update
 RUN apt-get install -y ksh
+RUN apt-get install -y ssh 
+RUN apt-get install -y git 
 
 # On créé le répertoire d'installation de VTOM
 RUN mkdir /opt/vtom 
