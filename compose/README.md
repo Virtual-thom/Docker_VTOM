@@ -1,6 +1,11 @@
+```
+    volumes:
+    - /mnt/workspace:/mnt/workspace
+```
+
 With Windows Docker Toolbox, you have to set and mount the share in VirtualBox.
 
-Right clic on your default VM in VirtualBox > configuration > Shared Folders > Add "workspace" as the name of the share to the Windows path that you want
+Right click on your default VM in VirtualBox > configuration > Shared Folders > Add "workspace" as the name of the share to the Windows path that you want
 
 next, for example
 
