@@ -22,10 +22,12 @@ Plusieurs solutions si on veut garder les modifications :
 En gros, soit on installe Docker engine sur un linux, soit on installe [Docker ToolBox](https://www.docker.com/toolbox) sur Windows. Cela dit, il ne fait qu'installer Virtualbox avec une mini VM Linux avec Docker installé dessus.
 
 (installation windows 10 docker plus simple maintenant avec Hyper-v)
+
+```
 Prérequis
 Enable-WindowsOptionalFeature -Online -FeatureName containers -All
 Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All
-
+```
 
 ### Clone de ce repo dans votre répertoire 
 `git clone https://github.com/thomas-asnar/Docker_VTOM.git`
