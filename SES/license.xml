@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?><License begin="07/09/2016" company="BPCE IT (ST HERBLAIN)" end="07/09/2019" generated="07/09/2016" hostid="7ef670af" hostname="">
+  <LicenseEntry information="LOCAL (monoposte) NET (multiposte) MULTI (multidomaine)" key="VT-IHM" serial="0056-05e3-5657-5550" value="MULTI"/>
+  <LicenseEntry information="Nombre maxi d'IP distinctes (* pour illimite)" key="VT-MACHINE" serial="0557-56e1-0e51-0a06" value="200"/>
+  <LicenseEntry information="Nombre maxi de jobs (* pour illimite)" key="VT-JOB" serial="000e-05e4-5c54-0056" value="*"/>
+  <LicenseEntry information="Module Deploiement (0:inactif 1:actif)" key="VT-XAP-DEPLOY" serial="0409-52b1-0459-5506" value="1"/>
+</License>
