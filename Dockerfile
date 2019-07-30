@@ -4,9 +4,9 @@ FROM debian:latest
 MAINTAINER thomas ASNAR <thomas.asnar@gmail.com>
 
 # L'installation de VTOM nécessite ksh
-RUN export http_proxy="http://DOM\\B0002171:mdp@proxy:8080"
-RUN export https_proxy="http://DOM\\B0002171:mdp@proxy:8080"
-RUN echo 'Acquire::http::proxy "http://DOM\\B0002171:mdp@proxy:8080";' >> /etc/apt/apt.conf.d/proxyPerso.conf
+RUN export http_proxy="http://DOM\\user:mdp@proxy:8080"
+RUN export https_proxy="http://DOM\\user:mdp@proxy:8080"
+RUN echo 'Acquire::http::proxy "http://DOM\\user:mdp@proxy:8080";' >> /etc/apt/apt.conf.d/proxyPerso.conf
 RUN apt-get update
 RUN apt-get install -y ksh
 RUN apt-get install -y ssh 
